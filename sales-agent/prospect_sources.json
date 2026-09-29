@@ -1,0 +1,72 @@
+[
+  {
+    "company_name": "株式会社アイアンドユー",
+    "website": "https://job-gear.net/assistlogi2/",
+    "source_url": "https://job-gear.net/assistlogi2/AE0529717886/MDkyujin_d.htm",
+    "source_text": "企業名を明示した公式採用サイトの物流事務求人。アイドル関連商品の購入者別データをExcelで集計・加工し、ピボットテーブルやVLOOKUPで商品・数量を整理して、倉庫の作業資料、商品ラベル、送り状を作成する業務を記載。出荷履歴の保管と過去案件の照合も担当。求人は業務量増加と担当者負荷を募集背景として説明している。現時点の作業量・工程・改善余地は未確認。",
+    "contact_email": "",
+    "industry": "物流関連の情報処理・帳票発行",
+    "recruiting_status": "2026-05-29更新の求人ページを2026-09-29に閲覧できた。掲載後の採用充足・現在の募集継続は未確認。",
+    "hypothesis": "顧客別Excelデータの取込・検証・集計から作業資料とラベルを作る部分を標準化できる可能性。既存システムと担当者の確認工程を調べてから提案する。",
+    "evidence": [
+      {
+        "url": "https://job-gear.net/assistlogi2/AE0529717886/MDkyujin_d.htm",
+        "title": "物流事務／出荷管理・データ処理",
+        "kind": "official_recruitment",
+        "retrieved_at": "2026-09-29T03:20:19Z",
+        "published_or_updated_at": "2026-05-29",
+        "text": "Excelで購入者別の注文データを加工・集計し、ピボットテーブルとVLOOKUPを使って出荷対象を整理。集計後に現場資料、ラベル、送り状を作成する。",
+        "note": "要約。採用受付はグループ会社のアシスト物流サービス。匿名派遣先の求人ではない。"
+      },
+      {
+        "url": "https://www.asisuto-b.co.jp/profile/",
+        "title": "アシスト物流サービス会社概要",
+        "kind": "official_group_company_profile",
+        "retrieved_at": "2026-09-29T03:20:19Z",
+        "text": "関連会社として株式会社アイアンドユーを掲載し、情報処理、加工、各種帳票の発行を事業として説明。"
+      }
+    ]
+  },
+  {
+    "company_name": "株式会社マイファーム",
+    "website": "https://myfarm.co.jp/",
+    "source_url": "https://hrmos.co/pages/myfarm/jobs/d0017",
+    "source_text": "会社名が明示された同社HRMOS採用ページ。行政財務管理室の事務アシスタントを募集。行政機関と連携するプロジェクトの契約書・申請書類作成補助、行政提出用報告資料の作成とデータ整理、補助金・助成金申請補助を担当。Excelでのデータ入力・表作成、ピボットによる集計、VLOOKUP・IF等の関数処理を求めるスキルとして記載。マクロ等による効率化経験も歓迎。現在の手作業割合・データ量・既存の効率化状況は未確認。",
+    "contact_email": "",
+    "industry": "農業関連事業・行政連携プロジェクト",
+    "recruiting_status": "2026-09-29に採用ページを閲覧できた。求人の掲載日・更新日は見当たらず、現在の募集継続は未確認。会社情報に2026年8月末の従業員数があるが求人更新日とは扱わない。",
+    "hypothesis": "プロジェクト別データの入力チェックと報告用集計の整備を、小さなテンプレートまたは既存Office機能から検証できる可能性。行政書類の最終確認は担当者に残す。",
+    "evidence": [
+      {
+        "url": "https://hrmos.co/pages/myfarm/jobs/d0017",
+        "title": "行政財務管理室の事務アシスタントスタッフ",
+        "kind": "official_recruitment_hosted_hrmos",
+        "retrieved_at": "2026-09-29T03:20:19Z",
+        "published_or_updated_at": null,
+        "text": "行政プロジェクトの書類作成補助、報告資料のデータ整理、申請補助が業務。Excelデータ入力、表作成、ピボット集計、VLOOKUP・IF関数による処理をスキル欄に記載。",
+        "note": "要約。ページ内の採用専用メールは営業窓口として扱わず、contact_emailは空欄。"
+      }
+    ]
+  },
+  {
+    "company_name": "株式会社アスタリスク",
+    "website": "https://www.asx.co.jp/",
+    "source_url": "https://recruit.asx.co.jp/recruit/mid-career-recruitment-2/",
+    "source_text": "自社ドメインの公式採用サイトで営業事務を募集。受発注入力は自社開発システムを使用すると明記。加えてデータ入力、仕入再販品の発注、書類作成、請求書処理の補助、書類整理等を担当。PCスキルとしてExcelの入力と簡単な関数を記載。求人は組織編制に伴う増員と説明している。既存システム導入済みのため、システムがない会社とは扱わない。Excelからシステムへの転記が実際に発生しているかは未確認。",
+    "contact_email": "",
+    "industry": "自動認識関連機器・システム",
+    "recruiting_status": "2026-09-29に募集ページを閲覧できた。求人の掲載日・更新日は見当たらず、現在の募集継続は未確認。",
+    "hypothesis": "自社開発システムの周辺で行うExcel入力・書類作成・請求確認に反復作業があるかを確認する。既存機能で解決できるかを優先し、連携や補助ツールの必要性を検証する。",
+    "evidence": [
+      {
+        "url": "https://recruit.asx.co.jp/recruit/mid-career-recruitment-2/",
+        "title": "営業事務採用",
+        "kind": "official_recruitment",
+        "retrieved_at": "2026-09-29T03:20:19Z",
+        "published_or_updated_at": null,
+        "text": "自社開発システムによる受発注入力、データ入力、書類作成、請求書処理補助を業務として列挙。Excel入力と簡単な関数を応募スキルとして記載。",
+        "note": "要約。Excelによる集計業務や二重入力の存在は求人から断定できない。"
+      }
+    ]
+  }
+]

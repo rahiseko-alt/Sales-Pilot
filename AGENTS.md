@@ -1,5 +1,12 @@
 # AGENTS.md
 
+## Sales Pilot: repository and delivery
+
+- This repository is https://github.com/rahiseko-alt/Sales-Pilot. The runnable application lives in `sales-agent/`.
+- The user requested ongoing Git pushes: after an authorized change is complete and appropriate checks pass, commit and push to this repository. Preserve current branch conventions and never force-push.
+- Never commit `.env`, credentials, `sales-agent/data/`, real mailbox contents, local audit scripts, or runtime logs. Other projects in the parent workspace are outside this repository's scope.
+- Follow the latest `sales-agent/sales_quality_policy.json`. Preserve the user-specified sender name, omit AI author notices and Note links, state the purpose in the first sentence, and match both proposals and cited numerical examples to the prospect's confirmed scale and task volume.
+
 ## Agent skills
 
 Skills come from [mattpocock/skills](https://github.com/mattpocock/skills), installed into `.claude/skills/` with `npx skills add mattpocock/skills` and pinned in `skills-lock.json`. Do not edit them locally; update with `npx skills update`.

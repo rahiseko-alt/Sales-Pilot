@@ -1,0 +1,7 @@
+.env
+*.sqlite*
+*.db*
+__pycache__/
+data/
+*.log
+static-check.js
