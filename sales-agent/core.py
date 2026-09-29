@@ -96,7 +96,7 @@ class SalesAgent:
         s['llm_configured']=s['claude']['ready'] if s['llm_provider']=='claude_code' else bool(os.getenv('OPENAI_API_KEY')) if s['llm_provider']=='openai' else False
         s['mail_configured']=bool(os.getenv('AGENTMAIL_API_KEY') and os.getenv('AGENTMAIL_INBOX_ID'))
         return {'leads':leads,'messages':self.rows('SELECT * FROM messages ORDER BY created_at DESC LIMIT 200'),'outbox':self.rows('SELECT * FROM outbox ORDER BY created_at DESC LIMIT 200'),'events':self.rows('SELECT * FROM events ORDER BY created_at DESC LIMIT 200'),'settings':s,'stats':{'total':len(leads),'handoff':sum(x['status']=='handoff' for x in leads),'waiting':sum(x['status']=='waiting_reply' for x in leads),'drafts':sum(x['status']=='draft' for x in leads),'suppressed':len(self.rows('SELECT * FROM suppression'))}}
-    def detail(self,id): return {'lead':self.lead(id),**{t:self.rows(f'SELECT * FROM {t} WHERE lead_id=? ORDER BY created_at',(id,)) for t in ('messages','outbox','events')}}
+    def detail(self,id): return {'lead':self.lead(id),**{t:self.rows(f'SELECT * FROM {t} WHERE lead_id=? ORDER BY created_at',(id,)) for t in ('messages','outbox','events')},'quality_reviews':self.rows('SELECT id,status,issues,kind,policy_hash,created_at FROM quality_reviews WHERE lead_id=? ORDER BY created_at DESC',(id,))}
     def email_context(self,id,reply_to='initial'):
         lead=self.lead(id);s=self.settings()
         message=self.rows('SELECT * FROM messages WHERE remote_id=? AND lead_id=?',(reply_to,id)) if reply_to!='initial' else []
@@ -209,10 +209,27 @@ class SalesAgent:
             if lead['status']!='discovered': return lead
             evidence=[]; source=lead['source_text']
             if source and source!='[]': evidence.append({'url':'','title':'登録された資料','text':source,'kind':'provided','retrieved_at':now()})
+            if '\n根拠資料: ' in source:
+                try:
+                    registered=json.loads(source.rsplit('\n根拠資料: ',1)[1])
+                    if isinstance(registered,list):
+                        for item in registered[:20]:
+                            if isinstance(item,dict) and isinstance(item.get('text'),str):
+                                evidence.append({'url':str(item.get('url','')),'title':str(item.get('title','')),
+                                    'text':item['text'][:12000],'kind':'registered','retrieved_at':item.get('retrieved_at'),
+                                    'company_identity_verified':False})
+                except (ValueError,TypeError):
+                    self.event(id,'research_warning','登録根拠の形式を確認できず、企業規模は推測しません')
             if lead['website']:
                 try:
                     from discovery import research_company
-                    research=research_company(lead['website']); evidence.extend(research.get('evidence',[research]) if isinstance(research,dict) else [])
+                    research=research_company(lead['website'])
+                    fetched=research.get('evidence',[research]) if isinstance(research,dict) else []
+                    if self.settings()['source_company_names'].get(lead['website'])==lead['company']:
+                        for item in fetched:
+                            if item.get('url')==lead['website']:
+                                item.update(company_name=lead['company'],company_identity_verified=True)
+                    evidence.extend(fetched)
                     source+='\n'+json.dumps(research,ensure_ascii=False)
                 except Exception as e: self.event(id,'research_error','サイト調査を取得できません: '+str(e)[:180])
             if any(x in source.lower() for x in ('excel','入力','集計','転記')):
@@ -222,11 +239,15 @@ class SalesAgent:
             else:
                 proposal={'hypothesis':'公開情報だけでは業務課題を特定できません。繰り返し作業の有無を確認する提案です。','improvement':'業務ヒアリング → 作業の可視化 → 小規模な自動化の試作','tools':['業務整理','既存ツール比較','必要に応じた簡易アプリ'],'effect':'実測した負荷に応じて改善効果を評価します。','questions':['毎週繰り返す手作業はありますか？','負担の大きい作業は何ですか？']}
             mode='rules'
+            from company_facts import extract_company_facts
+            facts=extract_company_facts(evidence,lead['company'])
+            source+='\n確認した企業規模・業務量（未確認項目を推測しない）: '+json.dumps(facts,ensure_ascii=False)
             try:
                 generated=self.llm(lead,source[:22000])
                 if generated: proposal=generated; mode='llm'
             except Exception as e: self.event(id,'llm_error','AI 生成に失敗。根拠を限定したルール提案へ切替: '+str(e)[:120])
             research={'summary':lead['company']+' の公開資料・登録情報を確認','evidence':evidence,'source_text':lead['source_text'],'confidence':'要ヒアリング','mode':mode,'retrieved_at':now()}
+            research.update(facts)
             self.update(id,score=75 if mode=='llm' or 'Excel' in source else 55,research=research,proposal=proposal)
             try:
                 if mode=='llm' and self.settings()['llm_provider']=='claude_code':
