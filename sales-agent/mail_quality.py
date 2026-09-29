@@ -1,6 +1,7 @@
 """Reloadable editorial policy and conservative, objective pre-send checks."""
 import json
 import re
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 POLICY_PATH = Path(__file__).parent / 'sales_quality_policy.json'
@@ -25,8 +26,24 @@ def prospect_scale(research):
     if not confirmed or isinstance(employees, bool) or not isinstance(employees, int) or employees < 1:
         return {'employee_count':None,'status':'unknown','proposal_scope':'single_task',
                 'guidance':'人数・業務量は未確認。担当者一人の一工程を提案し、大規模な年間削減額や全社導入を持ち出さない。'}
-    return {'employee_count':employees,'status':'confirmed','source_url':size['source_url'],
-            'proposal_scope':'single_task','guidance':'企業人数と対象工程の作業量は別。規模だけで効果や予算を推測しない。'}
+    as_of = size.get('as_of')
+    scope = size.get('scope')
+    recent = False
+    if scope in ('company','named_legal_entity') and isinstance(as_of,str):
+        try:
+            match = re.fullmatch(r'(\d{4})-(\d{2})(?:-(\d{2}))?',as_of)
+            if match:
+                published = datetime(int(match[1]),int(match[2]),int(match[3] or 1),tzinfo=timezone(timedelta(hours=9)))
+                now = datetime.now(timezone(timedelta(hours=9)))
+                months = (now.year-published.year)*12+now.month-published.month
+                recent = published <= now and 0 <= months <= 18
+        except ValueError:
+            pass
+    return {'employee_count':employees,'status':'confirmed' if recent else 'historical_or_undated',
+            'source_url':size['source_url'],'as_of':as_of,'scope':scope,
+            'proposal_scope':'single_task',
+            'guidance':('掲載基準日と対象法人が確認できた人数。対象工程の作業量は別に確認する。' if recent else
+                        '掲載人数は現在値を確認できない。小さな一工程の提案に留め、大規模な年間削減事例を使わない。')}
 
 
 def reference_case(research, proposal=None):
@@ -41,7 +58,7 @@ def reference_case(research, proposal=None):
     cases = [case for case in cases if case.get('deployment_scale') != 'large' or large]
     matches = [(sum(keyword in text for keyword in case['keywords']), case)
                for case in cases]
-    best = max(matches, key=lambda match: match[0], default=(0, None))
+    best = max(matches, key=lambda match: (match[0], large and match[1].get('deployment_scale')=='large'), default=(0, None))
     return best[1] if best[0] else None
 
 

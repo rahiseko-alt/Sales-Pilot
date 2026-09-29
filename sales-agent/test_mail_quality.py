@@ -99,7 +99,26 @@ class MailQualityTests(unittest.TestCase):
 
     def test_department_count_and_unconfirmed_count_are_not_company_size(self):
         self.assertEqual(prospect_scale({'source_text':'部門7名','company_size':{'employee_count':500}})['status'],'unknown')
-        self.assertEqual(prospect_scale({'company_size':{'employee_count':20,'confirmed':True,'source_url':'https://example.com/about'}})['employee_count'],20)
+        self.assertEqual(prospect_scale({'company_size':{'employee_count':20,'confirmed':True,'source_url':'https://example.com/about'}})['status'],'historical_or_undated')
+
+    def test_old_undated_and_group_size_never_enable_large_case(self):
+        base={'source_text':'Excelの売上集計と出荷帳票','workload_scope':'multi_system'}
+        for as_of,scope in [('2010-01-01','company'),(None,'company'),('2026-09-01','includes_overseas_subsidiaries')]:
+            research={**base,'company_size':{'employee_count':500,'confirmed':True,'source_url':'https://example.com/about','as_of':as_of,'scope':scope}}
+            self.assertNotEqual(prospect_scale(research)['status'],'confirmed')
+            selected=reference_case(research)
+            self.assertNotEqual(selected['id'] if selected else None,'suzuyo_excel_sales')
+
+    def test_recent_dated_company_count_can_enable_large_case_only_with_workload(self):
+        from datetime import datetime, timezone, timedelta
+        as_of=datetime.now(timezone(timedelta(hours=9))).strftime('%Y-%m-%d')
+        size={'employee_count':500,'confirmed':True,'source_url':'https://example.com/about',
+              'as_of':as_of,'scope':'company'}
+        base={'source_text':'Excelの売上集計と出荷帳票','company_size':size}
+        self.assertEqual(prospect_scale(base)['status'],'confirmed')
+        self.assertNotEqual(reference_case(base)['id'],'suzuyo_excel_sales')
+        selected=reference_case({**base,'workload_scope':'multi_system'})
+        self.assertEqual(selected['id'],'suzuyo_excel_sales')
 
     def test_initial_opens_with_purpose_and_uses_reference(self):
         lead=self.agent.lead(self.lead['id'])

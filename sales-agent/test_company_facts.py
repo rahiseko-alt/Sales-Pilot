@@ -15,7 +15,9 @@ class CompanyFactsTests(unittest.TestCase):
     def test_explicit_company_size_keeps_source_and_quote(self):
         facts=self.facts([self.evidence('従業員数：25名。月間300件の注文')])
         self.assertEqual(facts['company_size']['employee_count'],25)
-        self.assertEqual(prospect_scale(facts)['status'],'confirmed')
+        self.assertEqual(facts['company_size']['status'],'published_count')
+        self.assertIsNone(facts['company_size']['as_of'])
+        self.assertEqual(prospect_scale(facts)['status'],'historical_or_undated')
         self.assertEqual(facts['workload_evidence'][0]['quote'],'月間300件の注文')
         self.assertEqual(facts['company_size']['source_url'],'https://example.com/about')
 
@@ -64,6 +66,49 @@ class CompanyFactsTests(unittest.TestCase):
             self.assertFalse(research['company_size']['confirmed'])
             self.assertEqual(research['workload_evidence'][0]['quote'],'月間300件の注文')
             self.assertFalse(research['workload_evidence'][0]['attribution_confirmed'])
+
+    def test_i_and_you_legal_entity_row_without_other_company_counts(self):
+        text=('従業員数 株式会社 アシスト物流サービス 40名 '
+              '株式会社 アイアンドユー 10名 株式会社 アイルサービス 60名 '
+              '株式会社 ドリームサービス 15名')
+        item={'url':'https://www.asisuto-b.co.jp/profile/','text':text,
+              'retrieved_at':'2026-09-29T07:46:43Z','company_name':'株式会社アイアンドユー',
+              'company_identity_verified':True}
+        size=extract_company_facts([item],'株式会社アイアンドユー')['company_size']
+        self.assertTrue(size['confirmed']);self.assertEqual(size['employee_count'],10)
+        self.assertEqual(size['scope'],'named_legal_entity');self.assertIsNone(size['as_of'])
+        self.assertEqual(size['status'],'published_count')
+        self.assertIn('アイアンドユー 10名',size['quote'])
+        self.assertNotIn('40名',size['quote']);self.assertNotIn('60名',size['quote'])
+
+    def test_other_legal_entity_rows_are_not_attributed(self):
+        item=self.evidence('従業員数 株式会社 アシスト物流サービス 40名 株式会社 アイルサービス 60名')
+        self.assertFalse(self.facts([item])['company_size']['confirmed'])
+
+    def test_myfarm_published_count_and_month_end_date(self):
+        item={'url':'https://hrmos.co/pages/myfarm/jobs/d0017',
+              'text':'従業員数 226名（うちアルバイト139名）※2026年8月末時点',
+              'retrieved_at':'2026-09-29','company_name':'株式会社マイファーム',
+              'company_identity_verified':True}
+        size=extract_company_facts([item],'株式会社マイファーム')['company_size']
+        self.assertTrue(size['confirmed']);self.assertEqual(size['employee_count'],226)
+        self.assertEqual(size['scope'],'company');self.assertEqual(size['as_of'],'2026-08')
+
+    def test_asterisk_group_count_stays_unconfirmed_with_scope_and_date(self):
+        item={'url':'https://www.asx.co.jp/corporate/data/',
+              'text':'従業員 110名（海外子会社含む、2025年8月31日現在）',
+              'retrieved_at':'2026-09-29','company_name':'株式会社アスタリスク',
+              'company_identity_verified':True}
+        size=extract_company_facts([item],'株式会社アスタリスク')['company_size']
+        self.assertFalse(size['confirmed']);self.assertIsNone(size['employee_count'])
+        self.assertEqual(size['scope'],'includes_overseas_subsidiaries')
+        self.assertEqual(size['candidates'][0]['employee_count'],110)
+        self.assertEqual(size['candidates'][0]['as_of'],'2025-08-31')
+
+    def test_old_published_count_not_treated_as_current_scale(self):
+        size=self.facts([self.evidence('従業員数20名（2018年4月1日現在）')])['company_size']
+        self.assertTrue(size['confirmed']);self.assertEqual(size['as_of'],'2018-04-01')
+        self.assertEqual(prospect_scale({'company_size':size})['status'],'historical_or_undated')
 
 
 if __name__=='__main__':unittest.main()

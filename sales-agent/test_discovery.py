@@ -3,6 +3,16 @@ from unittest.mock import patch
 import discovery
 
 
+class PublicTextEncodingTests(unittest.TestCase):
+    def test_shift_jis_meta_decodes_company_profile_without_http_charset(self):
+        html='<html><head><meta charset="shift_jis"></head><body>株式会社 アイアンドユー 10名</body></html>'
+        self.assertIn('アイアンドユー 10名', discovery.decode_public_text(html.encode('cp932'), 'text/html'))
+
+    def test_http_charset_and_utf8_fallback(self):
+        self.assertEqual(discovery.decode_public_text('従業員数25名'.encode('cp932'), 'text/plain; charset=Shift_JIS'), '従業員数25名')
+        self.assertEqual(discovery.decode_public_text('従業員数25名'.encode(), 'text/plain'), '従業員数25名')
+
+
 class DiscoveryTests(unittest.TestCase):
     def test_private_and_mixed_dns_rejected(self):
         for ips in (["127.0.0.1"], ["169.254.169.254"], ["8.8.8.8", "10.0.0.1"], ["::1"]):

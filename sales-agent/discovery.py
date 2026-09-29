@@ -1,5 +1,6 @@
 """Bounded public-web research and RSS/Atom prospect discovery. No third-party deps."""
 import datetime
+import codecs
 import http.client
 import ipaddress
 import re
@@ -13,6 +14,31 @@ MAX_BYTES = 1_000_000
 MAX_TEXT = 16000
 MAX_SOURCES = 20
 TIMEOUT = 8
+
+
+def decode_public_text(data, content_type=""):
+    """Decode a bounded page using declared encodings before UTF-8 fallback."""
+    head = data[:4096].decode("ascii", errors="ignore")
+    candidates = []
+    for pattern, source in (
+        (r"charset\s*=\s*[\"']?([^;\s\"'>/]+)", content_type),
+        (r"<meta\b[^>]*charset\s*=\s*[\"']?([^;\s\"'>/]+)", head),
+        (r"<\?xml\b[^>]*encoding\s*=\s*[\"']([^\"']+)", head),
+    ):
+        match = re.search(pattern, source, re.I)
+        if match:
+            candidates.append(match.group(1))
+    candidates.append("utf-8-sig")
+    for encoding in candidates:
+        try:
+            normalized = codecs.lookup(encoding).name
+            # Japanese sites commonly label Windows-31J bytes as Shift_JIS.
+            if normalized == "shift_jis":
+                normalized = "cp932"
+            return data.decode(normalized)
+        except (LookupError, UnicodeError):
+            continue
+    return data.decode("utf-8", errors="replace")
 
 
 def _public_addresses(host, port):
@@ -69,12 +95,7 @@ def fetch_public(url, redirects=3):
             data = response.read(MAX_BYTES + 1)
             if len(data) > MAX_BYTES:
                 raise ValueError("Source exceeds 1 MB research limit")
-            match = re.search(r"charset=[\"']?([^;\s\"']+)", mime, re.I)
-            encoding = match.group(1) if match else "utf-8"
-            try:
-                content = data.decode(encoding, errors="replace")
-            except LookupError:
-                content = data.decode("utf-8", errors="replace")
+            content = decode_public_text(data, mime)
             return {"url": url, "content": content, "content_type": mime}
         finally:
             if conn:
