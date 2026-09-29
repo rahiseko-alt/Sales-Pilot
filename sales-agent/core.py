@@ -2,12 +2,20 @@
 import json, os, re, sqlite3, threading, uuid, time, hashlib
 from datetime import datetime, timezone
 from urllib.request import Request, urlopen
-from urllib.parse import quote
+from urllib.parse import quote, urlunsplit
 from pathlib import Path
 from contextlib import contextmanager
 
 def now(): return datetime.now(timezone.utc).isoformat()
 def identifier(): return uuid.uuid4().hex
+
+def source_url_key(url):
+    """Normalize unambiguous URL equivalences without inferring page identity."""
+    from discovery import _validate_url
+    parsed,host,port=_validate_url(url)
+    authority=('['+host+']') if ':' in host else host
+    if port!=(443 if parsed.scheme=='https' else 80):authority+=':'+str(port)
+    return urlunsplit((parsed.scheme,authority,parsed.path or '/',parsed.query,''))
 
 class SalesAgent:
     def __init__(self, path=None):
@@ -28,7 +36,7 @@ class SalesAgent:
             CREATE TABLE IF NOT EXISTS mail_quality_audits(message_id TEXT,policy_hash TEXT,direction TEXT,issues TEXT,excerpt TEXT,created_at TEXT,PRIMARY KEY(message_id,policy_hash));
             ''')
             defaults={'paused':True,'dry_run':True,'auto_send':False,'daily_limit':10,'pricing':'初回ヒアリング無料。最終見積は担当者が確認してご案内します。','sender_name':'業務改善 AI 営業担当','feed_urls':[],'company_urls':[],'llm_provider':'claude_code'}
-            defaults.update({'reply_only':False,'allowed_recipients':[],'ai_replies':False,'seller_profile':{},'target_keywords':[],'delivery_overrides':{},'source_company_names':{},'rehearsal_source_url':'','rehearsal_recipient':''})
+            defaults.update({'reply_only':False,'allowed_recipients':[],'ai_replies':False,'seller_profile':{},'target_keywords':[],'delivery_overrides':{},'source_company_names':{},'company_profile_sources':{},'rehearsal_source_url':'','rehearsal_recipient':''})
             for k,v in defaults.items(): c.execute('INSERT OR IGNORE INTO settings VALUES (?,?)',(k,json.dumps(v,ensure_ascii=False)))
             # A crash after network send must never cause a blind retry.
             c.execute("UPDATE outbox SET status='uncertain',error='送信処理中に停止。プロバイダーで送信結果を確認してください。' WHERE status='sending'")
@@ -52,6 +60,17 @@ class SalesAgent:
                     v=[x.strip().lower() for x in v]
                 if k=='seller_profile' and not isinstance(v,dict): raise ValueError('営業担当者情報はオブジェクトで指定してください')
                 if k=='source_company_names' and (not isinstance(v,dict) or not all(isinstance(u,str) and isinstance(n,str) for u,n in v.items())): raise ValueError('求人URLと確認済み企業名の対応が必要です')
+                if k=='company_profile_sources':
+                    if not isinstance(v,dict):raise ValueError('会社名と確認済み会社概要URLの配列が必要です')
+                    normalized={}
+                    for company,urls in v.items():
+                        if not isinstance(company,str) or not company.strip() or not isinstance(urls,list) or not all(isinstance(url,str) for url in urls):raise ValueError('会社名と確認済み会社概要URLの配列が必要です')
+                        name=company.strip()
+                        if name in normalized:raise ValueError('空白除去後に会社名が重複しています')
+                        try:normalized[name]=list(dict.fromkeys(source_url_key(url.strip()) for url in urls))
+                        except (ValueError,TypeError,AttributeError,UnicodeError) as error:raise ValueError('会社概要は認証情報を含まない http(s) URL で指定してください') from error
+                        if len(normalized[name])>2:raise ValueError('会社概要URLは一社につき最大2件です')
+                    v=normalized
                 if k=='rehearsal_recipient' and v and not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',v): raise ValueError('検証用送信先を確認してください')
                 if k=='target_keywords' and (not isinstance(v,list) or not all(isinstance(x,str) for x in v)): raise ValueError('営業対象条件は文字列の配列で指定してください')
                 if k=='delivery_overrides':
@@ -203,6 +222,51 @@ class SalesAgent:
         p=json.loads(result['choices'][0]['message']['content'])
         if not all(k in p for k in ('hypothesis','improvement','tools','effect','questions')): raise ValueError('AI 提案の形式が不正です')
         return p
+    def research_lead_sources(self,lead):
+        """Fetch the job page plus at most two configured company-profile URLs.
+
+        Configuration verifies page identity only; facts still fail closed for
+        group figures and hypothetical numbers. A confirmed count means the
+        number was published; its currentness is not independently verified.
+        Provided evidence is never verified here. Redirects need configured
+        final URLs.
+        """
+        from discovery import research_company
+        settings=self.settings();profiles=settings['company_profile_sources'].get(lead['company'],[])
+        approved=set(profiles)
+        for url,name in settings['source_company_names'].items():
+            if name==lead['company']:
+                try:approved.add(source_url_key(url))
+                except (ValueError,TypeError,AttributeError,UnicodeError):continue
+        requested=set();returned=set();evidence=[];auxiliary=0
+        sources=([(lead['website'],'job')] if lead['website'] else [])+[(url,'company_profile') for url in profiles]
+        for url,role in sources:
+            try:key=source_url_key(url)
+            except (ValueError,TypeError,AttributeError,UnicodeError) as error:
+                self.event(lead['id'],'research_error','調査URLを確認できません: '+str(error)[:140]);continue
+            if key in requested or key in returned:continue
+            if role=='company_profile':
+                if auxiliary>=2:break
+                auxiliary+=1
+            requested.add(key)
+            try:
+                fetched=research_company(url)
+                if not isinstance(fetched,dict):raise ValueError('調査結果の形式が不正です')
+                for raw in fetched.get('evidence',[fetched]):
+                    if not isinstance(raw,dict):continue
+                    item=dict(raw)
+                    item.pop('company_identity_verified',None);item.pop('company_name',None)
+                    item['requested_source_url']=key;item['source_role']=role
+                    try:item_key=source_url_key(item.get('url',''))
+                    except (ValueError,TypeError,AttributeError,UnicodeError):item_key=None
+                    if item_key and item_key in returned:continue
+                    if item_key:
+                        returned.add(item_key)
+                        if item_key in approved:item.update(company_name=lead['company'],company_identity_verified=True)
+                    evidence.append(item)
+            except Exception as error:
+                self.event(lead['id'],'research_error',('会社概要' if role=='company_profile' else '求人・サイト')+'を取得できません: '+key+' '+str(error)[:150])
+        return evidence
     def run(self,id):
         with self.lock:
             lead=self.lead(id)
@@ -220,18 +284,9 @@ class SalesAgent:
                                     'company_identity_verified':False})
                 except (ValueError,TypeError):
                     self.event(id,'research_warning','登録根拠の形式を確認できず、企業規模は推測しません')
-            if lead['website']:
-                try:
-                    from discovery import research_company
-                    research=research_company(lead['website'])
-                    fetched=research.get('evidence',[research]) if isinstance(research,dict) else []
-                    if self.settings()['source_company_names'].get(lead['website'])==lead['company']:
-                        for item in fetched:
-                            if item.get('url')==lead['website']:
-                                item.update(company_name=lead['company'],company_identity_verified=True)
-                    evidence.extend(fetched)
-                    source+='\n'+json.dumps(research,ensure_ascii=False)
-                except Exception as e: self.event(id,'research_error','サイト調査を取得できません: '+str(e)[:180])
+            fetched=self.research_lead_sources(lead)
+            evidence.extend(fetched)
+            if fetched:source+='\n'+json.dumps(fetched,ensure_ascii=False)
             if any(x in source.lower() for x in ('excel','入力','集計','転記')):
                 proposal={'hypothesis':'求人・公開情報から、入力や転記、集計に人手が掛かっている可能性があります。実際の工程はヒアリングで確認します。','improvement':'入力フォーム → データの自動検証 → 集計 → 定期レポートの作成','tools':['フォーム','データベース','Python / 自動化ツール'],'effect':'転記の手間と入力ミスを減らす可能性があります。時間削減は実データで測定します。','questions':['月あたりの件数と入力時間はどの程度ですか？','現在使用しているファイルやシステムは何ですか？']}
             elif any(x in source for x in ('問い合わせ','問合せ','電話','予約')):
