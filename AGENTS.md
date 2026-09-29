@@ -6,6 +6,7 @@
 - The user requested ongoing Git pushes: after an authorized change is complete and appropriate checks pass, commit and push to this repository. Preserve current branch conventions and never force-push.
 - Never commit `.env`, credentials, `sales-agent/data/`, real mailbox contents, local audit scripts, or runtime logs. Other projects in the parent workspace are outside this repository's scope.
 - Follow the latest `sales-agent/sales_quality_policy.json`. Preserve the user-specified sender name, omit AI author notices and Note links, state the purpose in the first sentence, and match both proposals and cited numerical examples to the prospect's confirmed scale and task volume.
+- PC migration checkpoint (2026-09-29): the user ended work to change PCs. The old-PC server is stopped and its DB is paused. Do not start the old-PC server or resume sending as part of a scheduled audit. On the new PC, follow `sales-agent/PC-MIGRATION.md`; resume only after restoring the private DB, authenticating Claude and confirming the old PC remains stopped. The old Codex heartbeat pause could not be confirmed; avoid duplicate audits and reconfigure it on the new PC.
 
 ## Agent skills
 
