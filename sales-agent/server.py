@@ -48,6 +48,7 @@ class Handler(BaseHTTPRequestHandler):
             elif len(parts)==4 and parts[:2]==['api','leads']:
                 id,action=parts[2:]
                 if action=='run': result=agent.run(id)
+                elif action=='verify-company': result=agent.verify_company(id,data.get('company'))
                 elif action=='reply': result=agent.receive(id,data.get('text',''))
                 elif action=='handoff': result=agent.handoff(id,data.get('reason','担当者への引継ぎ'))
                 else: return self.respond(404,{'error':'操作が見つかりません'})

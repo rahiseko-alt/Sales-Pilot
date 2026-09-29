@@ -500,10 +500,36 @@ class SalesAgent:
         if isinstance(candidates,dict):
             for failure in candidates.get('errors',[]): self.event('','discovery_error',str(failure)[:300])
             candidates=candidates.get('leads',candidates.get('candidates',[]))
+        known={}
+        conflicts=set()
+        for url,name in s['source_company_names'].items():
+            try:key=source_url_key(url)
+            except (ValueError,TypeError,AttributeError,UnicodeError):continue
+            if key in known and known[key]!=name:conflicts.add(key)
+            known[key]=name
         for candidate in candidates:
+            if not isinstance(candidate,dict):continue
             source_url=candidate.get('source_url') or candidate.get('website','')
-            if source_url in s['source_company_names']: candidate['company_name']=s['source_company_names'][source_url]
-            lead=self.add(candidate);added.append(lead)
+            try:key=source_url_key(source_url)
+            except (ValueError,TypeError,AttributeError,UnicodeError):
+                self.event('','discovery_error','候補URLが不正なため登録を保留');continue
+            title=str(candidate.get('source_title') or candidate.get('candidate_name') or '')[:200]
+            verified=known.get(key) if key not in conflicts else None
+            record={**candidate,'company_name':verified or '募集主未確認','website':source_url,
+                    'contact_email':candidate.get('contact_email','') if verified else ''}
+            previous=self.rows('SELECT id FROM leads WHERE website=? AND email=?',(source_url,''))
+            lead=self.lead(previous[0]['id']) if previous else self.add(record)
+            if verified and lead['status']=='identity_pending':
+                lead=self.verify_company(lead['id'],verified)
+            if not verified and lead['status']=='discovered' and lead['company']=='募集主未確認':
+                self.update(lead['id'],status='identity_pending',research={
+                    'identity_status':'unverified','candidate_name':title,
+                    'source_url':source_url})
+                self.event(lead['id'],'identity_pending','求人・ページの見出しから募集主を断定せず確認待ち')
+                lead=self.lead(lead['id'])
+            if key in conflicts:self.event(lead['id'],'identity_conflict','同じURLに異なる会社名の設定があります')
+            added.append(lead)
+            if not verified:continue
             if s['rehearsal_source_url']==source_url and s['rehearsal_recipient'] and s['rehearsal_recipient'] in s['allowed_recipients']:
                 overrides=self.settings()['delivery_overrides']
                 if overrides.get(lead['id'])!=s['rehearsal_recipient']:
@@ -511,6 +537,25 @@ class SalesAgent:
                     self.configure({'delivery_overrides':overrides})
                     self.event(lead['id'],'rehearsal','実企業の求人から作成する初回メールを本人へ届ける検証を設定')
         self.event('','discovery',str(len(added))+' 件の候補を公開ソースから確認'); return added
+    def verify_company(self,id,company):
+        """A human confirms a source's employer before the worker can research it."""
+        lead=self.lead(id)
+        if lead['status']!='identity_pending':raise ValueError('募集主確認待ちの候補ではありません')
+        name=str(company or '').strip()
+        if not name or len(name)>120 or name=='募集主未確認' or re.search(r'[\r\n]',name):
+            raise ValueError('確認した会社名を入力してください')
+        source_url=lead['research'].get('source_url') or lead['website']
+        key=source_url_key(source_url)
+        mapping=self.settings()['source_company_names']
+        for url,existing in mapping.items():
+            try:existing_key=source_url_key(url)
+            except (ValueError,TypeError,AttributeError,UnicodeError):continue
+            if existing_key==key and existing!=name:
+                raise ValueError('このURLには別の会社名が登録されています')
+        self.configure({'source_company_names':{**mapping,source_url:name}})
+        self.update(id,company=name,status='discovered',research={})
+        self.event(id,'identity_verified','公開ソースの募集主を人が確認して登録')
+        return self.lead(id)
     def tick(self,force=False):
         with self.lock:
             if self.settings()['paused'] and not force: return {'paused':True}

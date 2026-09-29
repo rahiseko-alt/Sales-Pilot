@@ -9,7 +9,7 @@ class FullPipelineTests(unittest.TestCase):
     def test_discovery_to_initial_mail_and_ai_reply_then_handoff(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'SALES_ALLOW_LIVE_SEND':'yes','AGENTMAIL_API_KEY':'test','AGENTMAIL_INBOX_ID':'agent@example.com'}):
             agent=SalesAgent(directory+'/test.db')
-            agent.configure({'paused':False,'dry_run':False,'auto_send':True,'reply_only':False,'allowed_recipients':['owner@example.com'],'ai_replies':True,'feed_urls':['https://example.com/jobs.xml']})
+            agent.configure({'paused':False,'dry_run':False,'auto_send':True,'reply_only':False,'allowed_recipients':['owner@example.com'],'ai_replies':True,'feed_urls':['https://example.com/jobs.xml'],'source_company_names':{'https://example.com/company':'検証企業'}})
             candidate={'company_name':'検証企業','contact_email':'owner@example.com','source_url':'https://example.com/company','source_text':'求人:注文をExcelへ転記して集計する事務担当者'}
             proposal={'hypothesis':'転記に手間がかかる可能性','improvement':'フォーム入力から自動集計','tools':['フォーム'],'effect':'転記負担軽減を実測する','questions':['入力件数は？']}
             sends=[]

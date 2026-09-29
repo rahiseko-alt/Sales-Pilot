@@ -165,7 +165,7 @@ def parse_feed(content, source_url):
         _validate_url(link)
         clean, _ = extract_text(description)
         evidence = {"url": link, "title": title, "text": clean, "kind": "job_feed", "feed_url": source_url, "retrieved_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
-        candidates.append({"company_name": title or urllib.parse.urlsplit(link).hostname, "website": "", "source_url": link, "source_text": clean, "evidence": [evidence], "contact_email": "", "hypothesis": "求人・公開情報から企業名と業務課題を確認する必要があります。"})
+        candidates.append({"company_name": "", "candidate_name": title or urllib.parse.urlsplit(link).hostname or "", "source_title": title, "identity_status": "unverified", "website": "", "source_url": link, "source_text": clean, "evidence": [evidence], "contact_email": "", "hypothesis": "求人・公開情報から企業名と業務課題を確認する必要があります。"})
         if len(candidates) >= MAX_SOURCES:
             break
     return candidates
@@ -188,5 +188,5 @@ def discover(feed_urls=None, company_urls=None):
         if evidence["url"] in seen:
             continue
         seen.add(evidence["url"])
-        leads.append({"company_name": evidence["title"] or urllib.parse.urlsplit(url).hostname, "website": evidence["url"], "source_url": evidence["url"], "source_text": evidence["text"], "evidence": [evidence], "contact_email": "", "hypothesis": "公開情報に基づいて業務課題を仮説化してください。"})
+        leads.append({"company_name": "", "candidate_name": evidence["title"] or urllib.parse.urlsplit(evidence["url"]).hostname or "", "source_title": evidence["title"], "identity_status": "unverified", "website": evidence["url"], "source_url": evidence["url"], "source_text": evidence["text"], "evidence": [evidence], "contact_email": "", "hypothesis": "公開情報に基づいて業務課題を仮説化してください。"})
     return leads

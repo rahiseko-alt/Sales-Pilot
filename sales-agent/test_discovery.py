@@ -37,8 +37,22 @@ class DiscoveryTests(unittest.TestCase):
         result = discovery.parse_feed(rss, "https://example.com/feed")
         self.assertEqual(result[0]["source_text"], "Excel入力")
         self.assertEqual(result[0]["contact_email"], "")
+        self.assertEqual(result[0]["company_name"], "")
+        self.assertEqual(result[0]["candidate_name"], "株式会社A 求人")
+        self.assertEqual(result[0]["source_title"], "株式会社A 求人")
+        self.assertEqual(result[0]["identity_status"], "unverified")
+        self.assertEqual(result[0]["evidence"][0]["title"], "株式会社A 求人")
         atom = '<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>A</title><link href="/jobs/1"/><summary>入力</summary></entry></feed>'
-        self.assertEqual(discovery.parse_feed(atom, "https://example.com/feed")[0]["source_url"], "https://example.com/jobs/1")
+        candidate=discovery.parse_feed(atom, "https://example.com/feed")[0]
+        self.assertEqual(candidate["source_url"], "https://example.com/jobs/1")
+        self.assertEqual(candidate["company_name"], "")
+
+    def test_job_title_even_with_company_word_is_not_verified_identity(self):
+        rss='<rss><channel><item><title>株式会社対象企業 採用情報</title><link>https://jobs.example.com/1</link><description>採用中</description></item></channel></rss>'
+        candidate=discovery.parse_feed(rss,'https://jobs.example.com/feed')[0]
+        self.assertEqual(candidate['company_name'],'')
+        self.assertEqual(candidate['candidate_name'],'株式会社対象企業 採用情報')
+        self.assertEqual(candidate['identity_status'],'unverified')
 
     def test_entity_feed_rejected(self):
         with self.assertRaises(ValueError):
@@ -50,6 +64,27 @@ class DiscoveryTests(unittest.TestCase):
             leads = discovery.discover(company_urls=["https://example.com", "https://example.com"])
         self.assertEqual(len(leads), 1)
         self.assertEqual(leads[0]["evidence"][0]["text"], "A社 データ入力")
+        self.assertEqual(leads[0]["company_name"], "")
+        self.assertEqual(leads[0]["candidate_name"], "A社")
+        self.assertEqual(leads[0]["identity_status"], "unverified")
+
+    def test_company_homepage_title_is_not_a_legal_entity_verification(self):
+        data={"url":"https://example.com/about","content":"<title>株式会社対象企業 | 会社概要</title><p>Excel集計</p>","content_type":"text/html"}
+        with patch.object(discovery,"fetch_public",return_value=data):
+            candidate=discovery.discover(company_urls=["https://example.com/about"])[0]
+        self.assertEqual(candidate["company_name"],"")
+        self.assertEqual(candidate["candidate_name"],"株式会社対象企業 | 会社概要")
+        self.assertEqual(candidate["source_title"],"株式会社対象企業 | 会社概要")
+        self.assertEqual(candidate["identity_status"],"unverified")
+        self.assertEqual(candidate["source_url"],"https://example.com/about")
+
+    def test_titleless_source_uses_hostname_only_as_display_candidate(self):
+        data={"url":"https://example.com/about","content":"<p>Excel集計</p>","content_type":"text/html"}
+        with patch.object(discovery,"fetch_public",return_value=data):
+            candidate=discovery.discover(company_urls=["https://example.com/about"])[0]
+        self.assertEqual(candidate["candidate_name"],"example.com")
+        self.assertEqual(candidate["source_title"],"")
+        self.assertEqual(candidate["company_name"],"")
 
 
 if __name__ == "__main__":
