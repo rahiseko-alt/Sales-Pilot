@@ -135,6 +135,10 @@ def extract_text(html):
 
 def research_company(url):
     fetched = fetch_public(url)
+    return _company_evidence(fetched)
+
+
+def _company_evidence(fetched):
     text, title = extract_text(fetched["content"])
     return {"url": fetched["url"], "title": title, "text": text, "kind": "public_page", "retrieved_at": datetime.datetime.now(datetime.timezone.utc).isoformat(), "note": "公開情報。課題は事実と区別して仮説として扱う。"}
 
@@ -172,21 +176,38 @@ def parse_feed(content, source_url):
 
 
 def discover(feed_urls=None, company_urls=None):
-    """Return evidence-backed drafts; never infer contact addresses or send mail."""
+    """Return independent source results and sanitized, actionable failures.
+
+    Error records deliberately exclude raw URLs, paths, query strings and
+    exception text. A failed source never aborts later configured sources.
+    """
     feed_urls, company_urls = feed_urls or [], company_urls or []
     if len(feed_urls) + len(company_urls) > MAX_SOURCES:
         raise ValueError("At most 20 source URLs per discovery run")
-    leads, seen = [], set()
-    for url in feed_urls:
-        fetched = fetch_public(url)
-        for lead in parse_feed(fetched["content"], fetched["url"]):
-            if lead["source_url"] not in seen:
+    leads, errors, seen, requested = [], [], set(), set()
+    def failure(url,kind,index,reason):
+        try:host=urllib.parse.urlsplit(url).hostname
+        except (ValueError,TypeError,AttributeError):host=None
+        errors.append({'kind':kind,'host':(host[:255] if host else None),'index':index,'reason':reason})
+    for index,url in enumerate(feed_urls,1):
+        if url in requested:continue
+        requested.add(url)
+        try:fetched=fetch_public(url)
+        except Exception:failure(url,'feed',index,'fetch_failed');continue
+        try:candidates=parse_feed(fetched['content'],fetched['url'])
+        except Exception:failure(url,'feed',index,'parse_failed');continue
+        for lead in candidates:
+            if lead['source_url'] not in seen:
                 leads.append(lead)
-                seen.add(lead["source_url"])
-    for url in company_urls:
-        evidence = research_company(url)
-        if evidence["url"] in seen:
-            continue
-        seen.add(evidence["url"])
+                seen.add(lead['source_url'])
+    for index,url in enumerate(company_urls,len(feed_urls)+1):
+        if url in requested:continue
+        requested.add(url)
+        try:fetched=fetch_public(url)
+        except Exception:failure(url,'company',index,'fetch_failed');continue
+        try:evidence=_company_evidence(fetched)
+        except Exception:failure(url,'company',index,'parse_failed');continue
+        if evidence['url'] in seen:continue
+        seen.add(evidence['url'])
         leads.append({"company_name": "", "candidate_name": evidence["title"] or urllib.parse.urlsplit(evidence["url"]).hostname or "", "source_title": evidence["title"], "identity_status": "unverified", "website": evidence["url"], "source_url": evidence["url"], "source_text": evidence["text"], "evidence": [evidence], "contact_email": "", "hypothesis": "公開情報に基づいて業務課題を仮説化してください。"})
-    return leads
+    return {'leads':leads,'errors':errors}

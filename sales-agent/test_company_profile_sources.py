@@ -39,6 +39,16 @@ class CompanyProfileSourceTests(unittest.TestCase):
         self.assertEqual(research.call_count,3)
         self.assertTrue(result['research']['company_size']['confirmed'])
         self.assertTrue(self.agent.rows("SELECT * FROM events WHERE type='research_error'"))
+
+    def test_profile_failure_event_excludes_query_and_provider_error(self):
+        url='https://example.com/about?token=SENTINEL'
+        self.agent.configure({'company_profile_sources':{'対象会社':[url]}})
+        lead=self.agent.add({'company':'対象会社'})
+        with patch('discovery.research_company',side_effect=ValueError('SENTINEL internal text')):
+            self.agent.run(lead['id'])
+        events=' '.join(row['text'] for row in self.agent.rows("SELECT text FROM events WHERE type='research_error'"))
+        self.assertIn('example.com',events)
+        self.assertNotIn('SENTINEL',events)
     def test_duplicate_job_and_profile_fetch_once_and_add_attribution(self):
         job='https://example.com/about'
         self.agent.configure({'company_profile_sources':{'対象会社':[job,job+'#fragment']}})

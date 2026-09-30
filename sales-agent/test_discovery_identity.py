@@ -69,5 +69,17 @@ class DiscoveryIdentityTests(unittest.TestCase):
         self.assertEqual(repeated['status'],'discovered')
         self.assertEqual(repeated['company'],'株式会社手入力')
 
+    def test_source_failure_is_recorded_without_leaking_query_or_raw_exception(self):
+        result={'leads':[self.candidate()],
+                'errors':[{'kind':'feed','host':'jobs.example.com','index':1,
+                           'reason':'fetch_failed','url':'https://jobs.example.com/?token=SENTINEL',
+                           'error':'SENTINEL secret response'}]}
+        with patch('discovery.discover',return_value=result):found=self.agent.discover()
+        self.assertEqual(len(found),1)
+        self.assertEqual(found[0]['status'],'identity_pending')
+        descriptions=' '.join(row['text'] for row in self.agent.rows("SELECT text FROM events WHERE type='discovery_error'"))
+        self.assertIn('jobs.example.com',descriptions)
+        self.assertNotIn('SENTINEL',descriptions)
+
 
 if __name__=='__main__':unittest.main()

@@ -2,7 +2,7 @@
 import json, os, re, sqlite3, threading, uuid, time, hashlib
 from datetime import datetime, timezone
 from urllib.request import Request, urlopen
-from urllib.parse import quote, urlunsplit
+from urllib.parse import quote, urlunsplit, urlsplit
 from pathlib import Path
 from contextlib import contextmanager
 
@@ -243,7 +243,7 @@ class SalesAgent:
         for url,role in sources:
             try:key=source_url_key(url)
             except (ValueError,TypeError,AttributeError,UnicodeError) as error:
-                self.event(lead['id'],'research_error','調査URLを確認できません: '+str(error)[:140]);continue
+                self.event(lead['id'],'research_error','調査URLの形式を確認できません');continue
             if key in requested or key in returned:continue
             if role=='company_profile':
                 if auxiliary>=2:break
@@ -265,7 +265,8 @@ class SalesAgent:
                         if item_key in approved:item.update(company_name=lead['company'],company_identity_verified=True)
                     evidence.append(item)
             except Exception as error:
-                self.event(lead['id'],'research_error',('会社概要' if role=='company_profile' else '求人・サイト')+'を取得できません: '+key+' '+str(error)[:150])
+                host=urlsplit(key).hostname or '公開ソース'
+                self.event(lead['id'],'research_error',('会社概要' if role=='company_profile' else '求人・サイト')+'を取得できません: '+host)
         return evidence
     def run(self,id):
         with self.lock:
@@ -498,7 +499,15 @@ class SalesAgent:
         s=self.settings(); d=data or s
         candidates=discover(d.get('feed_urls',[]),d.get('company_urls',[])); added=[]
         if isinstance(candidates,dict):
-            for failure in candidates.get('errors',[]): self.event('','discovery_error',str(failure)[:300])
+            for failure in candidates.get('errors',[]):
+                if isinstance(failure,dict):
+                    kind='求人RSS' if failure.get('kind')=='feed' else '企業ページ'
+                    index=failure.get('index')
+                    host=re.sub(r'[^A-Za-z0-9.\-]','',str(failure.get('host','')))[:100]
+                    reason=failure.get('reason') if failure.get('reason') in ('fetch_failed','parse_failed','research_failed') else 'source_failed'
+                    label=f'{kind} {index}' if isinstance(index,int) and index>0 else kind
+                    self.event('','discovery_error',f'{label}（{host or "公開ソース"}）を確認できません: {reason}')
+                else:self.event('','discovery_error','公開ソースを確認できません')
             candidates=candidates.get('leads',candidates.get('candidates',[]))
         known={}
         conflicts=set()

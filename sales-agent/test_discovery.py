@@ -1,4 +1,6 @@
 import unittest
+import json
+import http.client
 from unittest.mock import patch
 import discovery
 
@@ -61,8 +63,10 @@ class DiscoveryTests(unittest.TestCase):
     def test_discovery_deduplicates_and_keeps_evidence(self):
         data = {"url": "https://example.com", "content": "<title>A社</title><p>データ入力</p>", "content_type": "text/html"}
         with patch.object(discovery, "fetch_public", return_value=data):
-            leads = discovery.discover(company_urls=["https://example.com", "https://example.com"])
+            result = discovery.discover(company_urls=["https://example.com", "https://example.com"])
+        leads=result['leads']
         self.assertEqual(len(leads), 1)
+        self.assertEqual(result['errors'],[])
         self.assertEqual(leads[0]["evidence"][0]["text"], "A社 データ入力")
         self.assertEqual(leads[0]["company_name"], "")
         self.assertEqual(leads[0]["candidate_name"], "A社")
@@ -71,7 +75,7 @@ class DiscoveryTests(unittest.TestCase):
     def test_company_homepage_title_is_not_a_legal_entity_verification(self):
         data={"url":"https://example.com/about","content":"<title>株式会社対象企業 | 会社概要</title><p>Excel集計</p>","content_type":"text/html"}
         with patch.object(discovery,"fetch_public",return_value=data):
-            candidate=discovery.discover(company_urls=["https://example.com/about"])[0]
+            candidate=discovery.discover(company_urls=["https://example.com/about"])['leads'][0]
         self.assertEqual(candidate["company_name"],"")
         self.assertEqual(candidate["candidate_name"],"株式会社対象企業 | 会社概要")
         self.assertEqual(candidate["source_title"],"株式会社対象企業 | 会社概要")
@@ -81,10 +85,67 @@ class DiscoveryTests(unittest.TestCase):
     def test_titleless_source_uses_hostname_only_as_display_candidate(self):
         data={"url":"https://example.com/about","content":"<p>Excel集計</p>","content_type":"text/html"}
         with patch.object(discovery,"fetch_public",return_value=data):
-            candidate=discovery.discover(company_urls=["https://example.com/about"])[0]
+            candidate=discovery.discover(company_urls=["https://example.com/about"])['leads'][0]
         self.assertEqual(candidate["candidate_name"],"example.com")
         self.assertEqual(candidate["source_title"],"")
         self.assertEqual(candidate["company_name"],"")
+
+    def test_feed_fetch_failure_isolated_from_later_valid_feed(self):
+        first='https://bad.example.com/jobs?token=TOKEN_SENTINEL_SECRET'
+        second='https://good.example.com/jobs'
+        valid='<rss><channel><item><title>物流事務</title><link>https://good.example.com/1</link></item></channel></rss>'
+        def fetch(url):
+            if url==first:raise http.client.BadStatusLine('HTTP_SENTINEL_SECRET')
+            return {'url':url,'content':valid,'content_type':'application/rss+xml'}
+        with patch.object(discovery,'fetch_public',side_effect=fetch):result=discovery.discover(feed_urls=[first,second])
+        self.assertEqual(len(result['leads']),1)
+        self.assertEqual(result['leads'][0]['source_url'],'https://good.example.com/1')
+        self.assertEqual(result['errors'],[{'kind':'feed','host':'bad.example.com','index':1,'reason':'fetch_failed'}])
+        self.assertNotIn('SENTINEL_SECRET',json.dumps(result))
+
+    def test_feed_parse_failure_isolated_from_later_valid_company_page(self):
+        broken='https://bad.example.com/feed'
+        good='https://good.example.com/about'
+        def fetch(url):
+            if url==broken:return {'url':url,'content':'<!DOCTYPE rss><rss/>','content_type':'application/rss+xml'}
+            return {'url':url,'content':'<title>採用情報</title><p>Excel入力</p>','content_type':'text/html'}
+        with patch.object(discovery,'fetch_public',side_effect=fetch):result=discovery.discover(feed_urls=[broken],company_urls=[good])
+        self.assertEqual(len(result['leads']),1)
+        self.assertEqual(result['leads'][0]['source_url'],good)
+        self.assertEqual(result['errors'],[{'kind':'feed','host':'bad.example.com','index':1,'reason':'parse_failed'}])
+
+    def test_company_fetch_and_parse_failures_do_not_stop_later_company(self):
+        urls=['https://first.example.com/about','https://second.example.com/about','https://good.example.com/about']
+        def fetch(url):
+            if url==urls[0]:raise TimeoutError('TOKEN_SENTINEL_SECRET')
+            return {'url':url,'content':('PARSE_SENTINEL_SECRET' if url==urls[1] else '<title>採用</title><p>入力</p>'),'content_type':'text/html'}
+        original=discovery.extract_text
+        def parse(content):
+            if content=='PARSE_SENTINEL_SECRET':raise ValueError('EXCEPTION_SENTINEL_SECRET')
+            return original(content)
+        with patch.object(discovery,'fetch_public',side_effect=fetch),patch.object(discovery,'extract_text',side_effect=parse):
+            result=discovery.discover(company_urls=urls)
+        self.assertEqual([lead['source_url'] for lead in result['leads']],[urls[2]])
+        self.assertEqual([error['reason'] for error in result['errors']],['fetch_failed','parse_failed'])
+        self.assertEqual([error['index'] for error in result['errors']],[1,2])
+        self.assertNotIn('SENTINEL_SECRET',json.dumps(result))
+
+    def test_all_sources_failing_are_reported_without_abort(self):
+        urls=['https://first.example.com/feed','https://second.example.com/company']
+        with patch.object(discovery,'fetch_public',side_effect=TimeoutError('SECRET_SENTINEL')):
+            result=discovery.discover(feed_urls=urls[:1],company_urls=urls[1:])
+        self.assertEqual(result['leads'],[])
+        self.assertEqual(len(result['errors']),2)
+        self.assertEqual([e['kind'] for e in result['errors']],['feed','company'])
+
+    def test_duplicate_successful_source_is_fetched_once(self):
+        url='https://example.com/about'
+        data={'url':url,'content':'<title>企業情報</title><p>Excel</p>','content_type':'text/html'}
+        with patch.object(discovery,'fetch_public',return_value=data) as fetch:
+            result=discovery.discover(company_urls=[url,url])
+        self.assertEqual(len(result['leads']),1)
+        self.assertEqual(result['errors'],[])
+        fetch.assert_called_once_with(url)
 
 
 if __name__ == "__main__":
