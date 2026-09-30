@@ -23,6 +23,7 @@ class SalesAgent:
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
         self.last_discovery=0
+        self.last_job_search=0
         with self.db() as c:
             c.executescript('''
             CREATE TABLE IF NOT EXISTS leads(id TEXT PRIMARY KEY, company TEXT NOT NULL, email TEXT, website TEXT, industry TEXT, source_text TEXT, status TEXT, score INTEGER, research TEXT, proposal TEXT, subject TEXT, draft TEXT, handoff_reason TEXT, created_at TEXT, updated_at TEXT);
@@ -36,7 +37,7 @@ class SalesAgent:
             CREATE TABLE IF NOT EXISTS mail_quality_audits(message_id TEXT,policy_hash TEXT,direction TEXT,issues TEXT,excerpt TEXT,created_at TEXT,PRIMARY KEY(message_id,policy_hash));
             ''')
             defaults={'paused':True,'dry_run':True,'auto_send':False,'daily_limit':10,'pricing':'初回ヒアリング無料。最終見積は担当者が確認してご案内します。','sender_name':'業務改善 AI 営業担当','feed_urls':[],'company_urls':[],'llm_provider':'claude_code'}
-            defaults.update({'reply_only':False,'allowed_recipients':[],'ai_replies':False,'seller_profile':{},'target_keywords':[],'delivery_overrides':{},'source_company_names':{},'company_profile_sources':{},'rehearsal_source_url':'','rehearsal_recipient':''})
+            defaults.update({'reply_only':False,'allowed_recipients':[],'ai_replies':False,'auto_job_search':False,'seller_profile':{},'target_keywords':[],'delivery_overrides':{},'source_company_names':{},'company_profile_sources':{},'rehearsal_source_url':'','rehearsal_recipient':''})
             for k,v in defaults.items(): c.execute('INSERT OR IGNORE INTO settings VALUES (?,?)',(k,json.dumps(v,ensure_ascii=False)))
             # A crash after network send must never cause a blind retry.
             c.execute("UPDATE outbox SET status='uncertain',error='送信処理中に停止。プロバイダーで送信結果を確認してください。' WHERE status='sending'")
@@ -54,7 +55,7 @@ class SalesAgent:
         with self.lock,self.db() as c:
             for k,v in data.items():
                 if k not in current: continue
-                if k in ('paused','dry_run','auto_send','reply_only','ai_replies') and not isinstance(v,bool): raise ValueError('設定は true / false が必要です')
+                if k in ('paused','dry_run','auto_send','reply_only','ai_replies','auto_job_search') and not isinstance(v,bool): raise ValueError('設定は true / false が必要です')
                 if k=='allowed_recipients':
                     if not isinstance(v,list) or not all(isinstance(x,str) and re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',x.strip()) for x in v): raise ValueError('送信可能なメールアドレスの配列が必要です')
                     v=[x.strip().lower() for x in v]
@@ -494,10 +495,11 @@ class SalesAgent:
                 lead=[{'id':unknown['id']}]
             self.receive(lead[0]['id'],text,remote,item.get('thread_id','')); count+=1
         return count
-    def discover(self, data=None):
+    def discover(self, data=None, candidates=None):
         from discovery import discover
         s=self.settings(); d=data or s
-        candidates=discover(d.get('feed_urls',[]),d.get('company_urls',[])); added=[]
+        if candidates is None:candidates=discover(d.get('feed_urls',[]),d.get('company_urls',[]))
+        added=[]
         if isinstance(candidates,dict):
             for failure in candidates.get('errors',[]):
                 if isinstance(failure,dict):
@@ -572,6 +574,9 @@ class SalesAgent:
             if (s['feed_urls'] or s['company_urls']) and time.monotonic()-self.last_discovery>=1800:
                 try: self.last_discovery=time.monotonic(); self.discover()
                 except Exception as e: self.event('','discovery_error',str(e)[:200])
+            if s['auto_job_search'] and time.monotonic()-self.last_job_search>=21600:
+                self.last_job_search=time.monotonic()
+                threading.Thread(target=self.search_jobs,daemon=True,name='sales-job-search').start()
             try: received=self.sync() if not s['dry_run'] else 0
             except Exception as e: received=0; self.event('','sync_error',str(e)[:200])
             ai_processed=self.process_ai_replies()
@@ -581,6 +586,17 @@ class SalesAgent:
                 except Exception as e: self.event(lead['id'],'error',str(e)[:200])
             audit=self.audit_mail_quality()
             return {'processed':processed,'sent':self.flush(),'received':received,'ai_processed':ai_processed,'quality_audit':audit}
+    def search_jobs(self):
+        """Run slow web search independently of the mail worker."""
+        try:
+            from job_search import discover_jobs
+            result=discover_jobs()
+            if self.settings()['paused'] or not self.settings()['auto_job_search']:
+                return
+            self.discover(candidates=result)
+            self.event('','job_search',str(result['searched_urls'])+' 件の公開求人URLを確認')
+        except Exception as e:
+            self.event('','job_search_error',type(e).__name__+' のため求人検索を延期')
     def seed(self):
         examples=[('サンプル物流株式会社','logistics@example.invalid','配送伝票を毎日 Excel に入力し、月末に集計。事務スタッフを募集。','物流'),('サンプル住宅サービス','housing@example.invalid','問い合わせメール対応、予約日程の調整を担当する事務職を募集。','住宅'),('サンプル商事','trading@example.invalid','受発注データの転記と帳票作成。Excel の操作経験を歓迎。','卸売')]
         for company,email,source,industry in examples: self.add({'company':company,'email':email,'source_text':source,'industry':industry})
