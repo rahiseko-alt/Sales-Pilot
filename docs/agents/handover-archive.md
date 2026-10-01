@@ -4,6 +4,20 @@ handover.md の保存上限（5 件）を超えて押し出された古いメモ
 会話開始時には読み込まれない。過去の経緯を掘り返すときだけ開く。新しいものを一番上に来るよう足す。
 
 ---
+## 2026-09-29 PC移行のため終了
+
+### 保存・停止
+
+- ユーザーはPCを変更するため終了を要求。旧PCのSales Pilotをpaused=trueにしてサーバーPID14376を停止。稼働server.pyなしを確認。
+- 認証情報、SQLite案件・会話・送信記録、非公開品質調査メモを private-transfer-20260929/sales-pilot-private-transfer-20260929.zip に保存（Git対象外）。SQLite integrity_check=ok、paused=true、sending件数0、ZIP読取正常とSHA256保存を確認。
+- 移行手順は sales-agent/PC-MIGRATION.md。Claude認証はコピーせず新PCでauth login。ZIPは必ず新PCへ安全に移す必要があり、Git cloneだけでは案件・鍵は復元されない。
+- GitHub公開APIでopen PRゼロを確認。
+
+### 未完了・次回
+
+- Codex日次heartbeatの停止ツールが応答せず、設定ファイルではACTIVEのまま。停止成功とは扱わない。旧PCを閉じ、次回新PCで定時監査を再設定し二重稼働を防ぐ。AGENTSにも旧PC自動再開を禁止する移行チェックポイントを追加。
+- 新PCでDB・設定・Claude接続・送信先制限を確認してから再開。送信範囲は増やさない。
+- 開発続きは企業人数の基準日と対象法人の判定。AI受託担当への拡張は相談のみで未実装・未登録。
 ## 2026-09-29 会社概要の補助資料を調査へ接続
 
 ### 決めたこと・実装
